@@ -1,0 +1,302 @@
+import random
+
+random.seed(2019400216 + 2019400231)  # Set seed using student ID's
+
+
+# This simulation processes with minutes therefore multiplying every random value with 60.
+def generate_interarrival_times():
+    # Generate interarrival time, because 1 patient per hour, mu = 1
+    interarrival_time = random.expovariate(1) * 60
+    #print("currently generated interarrival time: " + str(interarrival_time))
+    return round(interarrival_time,2)
+
+
+def nurse_service_time():
+    mu_t = 0.476190476
+    # Generate service time for one patient at a triage nurse
+    service_time = random.expovariate(mu_t) * 60
+    #print("currently generated nurse evaluation time: " + str(service_time))
+    return round(service_time,2)
+
+
+def hospital_healing_time():
+    mu = 0.152380952
+    # Generate healing time for one patient in the hospital
+    healing_time = random.expovariate(mu) * 60
+    #print("currently generated hosp healing time: " + str(healing_time))
+    return round(healing_time,2)
+
+
+def home_healing_time(condition):
+    # Generate healing time for one patient taking self-care at home
+    if condition == "s":  # Patient in stable condition
+        healing_time = random.expovariate(0.16)
+    elif condition == "c":  # Patient in critical condition without hospital bed
+        alpha = random.uniform(1.25, 1.75)
+        healing_time = random.expovariate(0.16) * alpha
+    else:  # Invalid input
+        print("Invalid input. Please use 's' or 'c' as input for patient condition.")
+        healing_time = None
+    #print("currently generated home healing time: " + str(healing_time * 60))
+    return round(healing_time * 60,2)
+
+#generate values before to make simulation by hand
+interarrival_time_list = []
+for i in range(50):
+    interarrival_time_list.append(generate_interarrival_times())
+print("interarrival time list: ")
+print(interarrival_time_list)
+
+nurse_time_list = []
+for i in range(50):
+    nurse_time_list.append(nurse_service_time())
+print("nurse service time list: ")
+print(nurse_time_list)
+
+hospital_healing_list = []
+for i in range(50):
+    hospital_healing_list.append(hospital_healing_time())
+print("hospital_healing_list list: ")
+print(hospital_healing_list)
+
+home_healing_c_list = []
+for i in range(50):
+    home_healing_c_list.append(home_healing_time("c"))
+print("home_healing_c_list list: ")
+print(home_healing_c_list)
+
+home_healing_s_list = []
+for i in range(50):
+    home_healing_s_list.append(home_healing_time("s"))
+print("home_healing_s_list list: ")
+print(home_healing_s_list)
+
+stable_or_critical_list = []
+for i in range(50):
+    stable_or_critical_list.append(round(random.uniform(0, 1),2))
+print("stable_or_critical_list list: ")
+print(stable_or_critical_list)
+
+# Initialize variables
+
+num_patients = 50
+num_nurses = 3
+num_beds = 7
+
+# Initialize the list to keep track of the availability of the nurses
+nurse_busy = [False] * num_nurses
+# Initialize the list to keep track of the total time each nurse is busy serving patients
+nurse_utilization = [0] * num_nurses
+
+clock = 0
+first_arrival_time = interarrival_time_list.pop(0)
+event_list = [(first_arrival_time, "Arrival", first_arrival_time)]
+num_in_triage = 0
+num_in_hospital = 0
+num_in_system = 0
+num_used_beds = 0
+num_sent_to_home_s = 0
+rejected_patients = 0
+num_healed = 0
+num_healed_hosp = 0
+num_healed_home_c = 0
+num_healed_home_s = 0
+total_time = 0
+
+length_waiting_queue = 0
+total_waiting_patient = 0
+total_waiting_time = 0
+total_triage_time = 0
+total_treatment_time_home_s = 0
+total_treatment_time_home_c = 0
+total_treatment_time_hospital = 0
+
+
+# Define arrival function
+def arrival():
+    global num_in_triage, total_waiting_patient, num_in_hospital, num_in_system, length_waiting_queue
+    # print("arrival at {}".format(clock))
+    num_in_hospital += 1
+    num_in_system += 1
+    t = interarrival_time_list.pop(0)
+    event_list.append((clock + t, "Arrival", t))
+    print("next arrival at {}".format(clock + t))
+    if False in nurse_busy:
+        # If there is a free triage nurse, send the patient to the triage nurse
+        available_nurse = nurse_busy.index(False)
+        nurse_busy[available_nurse] = True
+        num_in_triage += 1
+        t = nurse_time_list.pop(0)
+        # departure triage event has an extra nurse id parameter
+        event_list.append((clock + t, "Departure Triage", t, available_nurse))
+        # Generate next arrival time
+        print("Patients in triage: " + str(num_in_triage))
+    else:
+        # If there is no free triage nurse, wait any nurse to become available.
+        length_waiting_queue += 1
+        print("append waiting queue at " + str(clock) + " length waiting queue: " + str(length_waiting_queue))
+        event_list.append((clock, "Wait Triage"))
+        total_waiting_patient += 1
+
+
+def departure_triage(service_time, nurse_id):
+    global num_in_triage, num_in_hospital, num_sent_to_home_s, num_used_beds, rejected_patients, total_triage_time
+    total_triage_time += service_time
+    # Update the total time the nurse is busy serving patients
+    nurse_utilization[nurse_id] += service_time
+    nurse_busy[nurse_id] = False
+    # Determine patient condition
+    if stable_or_critical_list.pop(0) <= 0.2:
+        status = "s"
+    else:
+        status = "c"
+    # print("Departure Triage "+status+" at: " +str(clock))
+    num_in_triage -= 1
+    print("Patients in triage: " + str(num_in_triage))
+    if status == "s":
+        # If the patient is in stable condition, send the patient home
+        num_sent_to_home_s += 1
+        num_in_hospital -= 1
+        t = home_healing_s_list.pop(0)
+        event_list.append((clock + t, "Treated at Home (S)", t))
+    else:
+        # If the patient is in critical condition, send the patient to the hospital
+        if (num_used_beds < num_beds):
+            num_used_beds += 1
+            t = hospital_healing_list.pop(0)
+            event_list.append((clock + t, "Treated at Hospital", t))
+        else:
+            t = home_healing_c_list.pop(0)
+            num_in_hospital -= 1
+            rejected_patients += 1
+            event_list.append((clock + t, "Treated at Home (C)", t))
+    # check whether a patient waits in queue, because it is sorted by time if there is a patient waits in queue
+    # because it's time is arrival time it will be the first one if the list is sorted.
+    event_list.sort()
+    if (event_list[0][1] == "Wait Triage"):  # if someone waits, then the patient will be arrival soon.
+        nurse_become_available(event_list[0][0])
+
+
+def treated_at_hospital(heal_time):
+    global num_in_hospital, num_healed, num_healed_hosp, total_treatment_time_hospital
+    num_in_hospital -= 1
+    num_healed += 1
+    num_healed_hosp += 1
+    total_treatment_time_hospital += heal_time
+
+
+def treated_at_home_s(heal_time):
+    global num_healed, num_healed_home_s, total_treatment_time_home_s
+    num_healed += 1
+    num_healed_home_s += 1
+    total_treatment_time_home_s += heal_time
+
+
+def treated_at_home_c(heal_time):
+    global num_healed, num_healed_home_c, total_treatment_time_home_c
+    num_healed += 1
+    num_healed_home_c += 1
+    total_treatment_time_home_c += heal_time
+
+
+def nurse_become_available(arrive_time):
+    global total_waiting_time, clock, length_waiting_queue
+    waiting_time = clock - arrive_time
+    total_waiting_time += waiting_time
+    length_waiting_queue -= 1
+    print("\nwait since: " + str(arrive_time) + " arrive queue at: " + str(clock) + " length waiting queue: " + str(
+        length_waiting_queue) + "\n")
+    event_list.append((clock, "Arrival", 0))  # if 3rd index is 0 that means patient comes from waiting queue.
+
+
+def advance_time():
+    global clock
+    event = (-1, "", -1)
+    event_name = event_list[0][1]
+    if (event_name != "Wait Triage"):
+        clock = event_list[0][0]
+        event = event_list[0]
+    else:
+        for i in range(1, len(event_list)):
+            if event_list[i][1] != "Wait Triage":  # assume there will be always events other than wait
+                clock = event_list[i][0]
+                event = event_list[i]
+                break
+    # print("clock: {}".format(clock))
+    # print("event: {}".format(event))
+    event_list.remove(event)
+    return event
+
+
+def execute_event(event):
+    event_name = event[1]
+    service_time = event[2]
+    print("\n" + "event_name: " + str(event_name) + " at: " + str(clock) + " its service time: " + str(
+        service_time) + "\n")
+    if event_name == "Arrival":
+        arrival()
+    elif event_name == "Departure Triage":
+        departure_triage(service_time, event[3])  # 3rd index is nurse id
+    elif event_name == "Treated at Hospital":
+        treated_at_hospital(service_time)
+    elif event_name == "Treated at Home (S)":
+        treated_at_home_s(service_time)
+    elif event_name == "Treated at Home (C)":
+        treated_at_home_c(service_time)
+    else:
+        print("Invalid event OR Wait coming.")
+
+
+# Main loop
+# while num_healed < 1:
+while num_healed < 5:
+    event_list.sort()
+    event = advance_time()
+    execute_event(event)
+    print(event_list)
+
+#add waited times of patient that couldn't find available nurse until system ends to the total waited time.
+for i in range (len(event_list)):
+    if event_list[i][1] == "Wait Triage":
+        total_waiting_time += clock - event_list[i][0]
+
+#add service time of nurses if their triage operation stay half because of system ends.
+for i in range (len(event_list)):
+    if event_list[i][1] == "Departure Triage":
+        nurse_id = event_list[i][3]
+        triage_start_time = event_list[i][0] - event_list[i][2]
+        last_service_time_until_system_ends = clock - triage_start_time
+        nurse_utilization[nurse_id] += last_service_time_until_system_ends
+
+def round_to_hour(time):
+    rounded = round(time / 60, 2)
+    roundedsplit = str(rounded).split(".")
+    time_in_min = round(float(roundedsplit[0] + "." + str(int(float(roundedsplit[1]) * 0.6))), 2)
+    return time_in_min
+
+
+# convert mins to hh.mm
+rounded = round(clock / 60, 2)
+roundedsplit = str(rounded).split(".")
+time_in_min = round(float(roundedsplit[0] + "." + str(int(float(roundedsplit[1]) * 0.6))), 2)
+print("Simulation complete.")
+print("Total time: {}".format(round_to_hour(clock)))
+print("Number of patients healed: {}".format(num_healed))
+print("Number of patients healed hosp: {}".format(num_healed_hosp))
+print("Number of patients healed home c: {}".format(num_healed_home_c))
+print("Number of patients healed home s: {}".format(num_healed_home_s))
+print("Number of patients sent home (s):  {}".format(num_sent_to_home_s))
+print("Number of patients sent home (c):  {}".format(rejected_patients))
+print("Number of patients in triage: {}".format(num_in_triage))
+print("Number of patients in beds: {}".format(num_used_beds))
+print("Number of patients in hospital: {}".format(num_in_hospital))
+print("Total Number of patients entered in system: {}".format(num_in_system))
+print("Total waiting patient: {}".format(total_waiting_patient))
+print("Total waiting time: {}".format(round_to_hour(total_waiting_time)))
+print("Total triage time: {}".format(round_to_hour(total_triage_time)))
+print("Total total_treatment_time_home_s: {}".format(round_to_hour(total_treatment_time_home_s)))
+print("Total treatment_time_home_c: {}".format(round_to_hour(total_treatment_time_home_c)))
+print("Total treatment_time_hospital: {}".format(round_to_hour(total_treatment_time_hospital)))
+# Calculate the average utilization of each nurse
+nurse_avg_utilization = [utilization / clock for utilization in nurse_utilization]
+print("Average utilization of each nurse: {}".format(nurse_avg_utilization))
